@@ -1,0 +1,23 @@
+{
+    "version": 2,
+    "builds": [
+      {
+        "src": "index.js",
+        "use": "@vercel/node"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/routes/User/(.*)",
+        "dest": "routes/User.js"
+      },
+      {
+        "src": "/routes/Twilio/(.*)",
+        "dest": "routes/Twilio.js"
+      },
+      {
+        "src": "/(.*)",
+        "dest": "index.js"
+      }
+    ]
+  }
