@@ -1,9 +1,9 @@
-
 const express = require('express');
 const router = express.Router();
-const User = require("../models/user")
+const User = require("../models/user");
+const Bill = require("../models/bill"); // Assuming Bill model exists
 
-
+// User Routes
 router.post('/users', async (req, res) => {
   try {
     const user = new User(req.body);
@@ -14,7 +14,6 @@ router.post('/users', async (req, res) => {
   }
 });
 
-
 router.get('/users', async (req, res) => {
   try {
     const users = await User.find();
@@ -23,7 +22,6 @@ router.get('/users', async (req, res) => {
     res.status(500).send(error);
   }
 });
-
 
 router.get('/users/:id', async (req, res) => {
   try {
@@ -37,7 +35,6 @@ router.get('/users/:id', async (req, res) => {
   }
 });
 
-
 router.put('/users/:id', async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -50,7 +47,6 @@ router.put('/users/:id', async (req, res) => {
   }
 });
 
-
 router.delete('/users/:id', async (req, res) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
@@ -60,6 +56,34 @@ router.delete('/users/:id', async (req, res) => {
     res.status(200).send({ message: 'User deleted successfully' });
   } catch (error) {
     res.status(500).send(error);
+  }
+});
+
+// Bill Routes
+router.put('/api/bill/billdata/:id', async (req, res) => {
+  try {
+    const bill = await Bill.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    if (!bill) {
+      return res.status(404).send({ message: 'Bill not found' });
+    }
+    res.status(200).send(bill);
+  } catch (error) {
+    res.status(400).send({ message: 'Failed to update bill', error });
+  }
+});
+
+router.delete('/api/bill/billdata/:id', async (req, res) => {
+  try {
+    const bill = await Bill.findByIdAndDelete(req.params.id);
+    if (!bill) {
+      return res.status(404).send({ message: 'Bill not found' });
+    }
+    res.status(200).send({ message: 'Bill deleted successfully' });
+  } catch (error) {
+    res.status(500).send({ message: 'Failed to delete bill', error });
   }
 });
 
