@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Bill = require('../models/bill');
 
-// POST route to save bill data
+// POST route to create bill data
 router.post('/billdata', async (req, res) => {
   try {
     const billData = req.body;
@@ -24,7 +24,7 @@ router.post('/billdata', async (req, res) => {
     const newBill = new Bill(billData);
     await newBill.save();
     
-    res.status(201).json({ message: 'Bill data saved successfully' });
+    res.status(201).json({ message: 'Bill data saved successfully', bill: newBill });
   } catch (error) {
     console.error('Error saving bill data:', error);
     if (error.code === 11000) {
@@ -37,7 +37,7 @@ router.post('/billdata', async (req, res) => {
   }
 });
 
-// GET route to fetch bill data
+// GET route to fetch all or filtered bill data
 router.get('/billdata', async (req, res) => {
   try {
     const { 
@@ -124,6 +124,76 @@ router.get('/billdata', async (req, res) => {
   } catch (error) {
     console.error('Error fetching bill data:', error);
     res.status(500).json({ error: 'Failed to fetch bill data' });
+  }
+});
+
+// GET route to fetch a single bill by ID
+router.get('/billdata/:id', async (req, res) => {
+  try {
+    const bill = await Bill.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+    res.status(200).json(bill);
+  } catch (error) {
+    console.error('Error fetching bill:', error);
+    res.status(500).json({ error: 'Failed to fetch bill' });
+  }
+});
+
+// PUT route to update bill data
+router.put('/billdata/:id', async (req, res) => {
+  try {
+    const billData = req.body;
+
+    // Validate required fields
+    if (!billData.buyerName || !billData.billNo || !billData.billDate || !billData.products || !billData.gst || !billData.totalAmount) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate product count
+    if (billData.products.length === 0) {
+      return res.status(400).json({ error: 'At least one product is required' });
+    }
+    if (billData.products.length > 4) {
+      return res.status(400).json({ error: 'Maximum of 4 products allowed' });
+    }
+
+    // Update the bill
+    const updatedBill = await Bill.findByIdAndUpdate(
+      req.params.id,
+      billData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedBill) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+
+    res.status(200).json({ message: 'Bill updated successfully', bill: updatedBill });
+  } catch (error) {
+    console.error('Error updating bill data:', error);
+    if (error.code === 11000) {
+      res.status(400).json({ error: 'Bill number already exists' });
+    } else if (error.name === 'ValidationError') {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Failed to update bill data' });
+    }
+  }
+});
+
+// DELETE route to delete bill data
+router.delete('/billdata/:id', async (req, res) => {
+  try {
+    const bill = await Bill.findByIdAndDelete(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+    res.status(200).json({ message: 'Bill deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting bill:', error);
+    res.status(500).json({ error: 'Failed to delete bill' });
   }
 });
 
