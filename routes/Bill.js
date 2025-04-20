@@ -2,167 +2,116 @@ const express = require('express');
 const router = express.Router();
 const Bill = require('../models/bill');
 
-// POST route to create bill data
+// Helper function to validate GST structure
+const validateGST = (gst) => {
+  if (!gst) return false;
+  const hasSgstCgst = gst.sgst !== undefined && gst.cgst !== undefined;
+  const hasIgst = gst.igst !== undefined;
+  return (hasSgstCgst && !hasIgst) || (hasIgst && !hasSgstCgst);
+};
+
+// Create a new bill
 router.post('/billdata', async (req, res) => {
   try {
-    const billData = req.body;
-    
+    const { buyerName, billNo, billDate, products, gst, totalAmount, gstPercentage } = req.body;
+
     // Validate required fields
-    if (!billData.buyerName || !billData.billNo || !billData.billDate || !billData.products || !billData.gst || !billData.totalAmount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!buyerName || !billNo || !billDate || !products || products.length === 0 || !gst || !totalAmount || !gstPercentage) {
+      return res.status(400).json({ error: 'All fields are required, including at least one product and valid GST' });
     }
 
-    // Validate product count
-    if (billData.products.length === 0) {
-      return res.status(400).json({ error: 'At least one product is required' });
-    }
-    if (billData.products.length > 4) {
-      return res.status(400).json({ error: 'Maximum of 4 products allowed' });
+    // Validate GST structure
+    if (!validateGST(gst)) {
+      return res.status(400).json({ error: 'Invalid GST structure: Provide either SGST and CGST or IGST' });
     }
 
-    // Create and save the bill
-    const newBill = new Bill(billData);
-    await newBill.save();
-    
-    res.status(201).json({ message: 'Bill data saved successfully', bill: newBill });
+    // Validate GST percentage
+    if (![5, 12, 18, 28].includes(gstPercentage)) {
+      return res.status(400).json({ error: 'Invalid GST percentage: Must be 5, 12, 18, or 28' });
+    }
+
+    const bill = new Bill({
+      buyerName,
+      billNo,
+      billDate,
+      products,
+      gst,
+      totalAmount,
+      gstPercentage,
+    });
+
+    const savedBill = await bill.save();
+    res.status(201).json({ message: 'Bill created successfully', bill: savedBill });
   } catch (error) {
-    console.error('Error saving bill data:', error);
+    console.error('Error creating bill:', error);
     if (error.code === 11000) {
       res.status(400).json({ error: 'Bill number already exists' });
-    } else if (error.name === 'ValidationError') {
-      res.status(400).json({ error: error.message });
     } else {
-      res.status(500).json({ error: 'Failed to save bill data' });
+      res.status(500).json({ error: 'Server error' });
     }
   }
 });
 
-// GET route to fetch all or filtered bill data
+// Get all bills or filtered bills
 router.get('/billdata', async (req, res) => {
   try {
-    const { 
-      billNo, 
-      buyerName, 
-      billDate, 
-      currentDate, 
-      minAmount, 
-      maxAmount, 
-      productCount, 
-      all, 
-      page = 1, 
-      limit = 10 
-    } = req.query;
+    const { page = 1, limit = 50, billDate, buyerName, productCount, minAmount, maxAmount, all } = req.query;
 
-    // Build query object
     const query = {};
-
-    // Filter by billNo
-    if (billNo) query.billNo = billNo;
-
-    // Filter by buyerName (case-insensitive partial match)
-    if (buyerName) query.buyerName = { $regex: buyerName, $options: 'i' };
-
-    // Filter by specific billDate (DD-MM-YYYY)
+    
     if (billDate) query.billDate = billDate;
-
-    // Filter by current date (based on createdAt)
-    if (currentDate === 'true') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      query.createdAt = { $gte: today, $lt: tomorrow };
-    }
-
-    // Filter by amount range
+    if (buyerName) query.buyerName = { $regex: buyerName, $options: 'i' };
+    if (productCount) query['products.0'] = { $exists: true }; // Ensure at least one product
     if (minAmount || maxAmount) {
       query.totalAmount = {};
-      if (minAmount) query.totalAmount.$gte = parseFloat(minAmount);
-      if (maxAmount) query.totalAmount.$lte = parseFloat(maxAmount);
+      if (minAmount) query.totalAmount.$gte = Number(minAmount);
+      if (maxAmount) query.totalAmount.$lte = Number(maxAmount);
     }
 
-    // Filter by product count
-    if (productCount) {
-      const count = parseInt(productCount, 10);
-      if (!isNaN(count) && count >= 1 && count <= 4) {
-        query['products.length'] = count;
-      } else {
-        return res.status(400).json({ error: 'Product count must be between 1 and 4' });
-      }
-    }
-
-    // Handle pagination or fetch all
     if (all === 'true') {
-      // Fetch all bills without pagination
-      const bills = await Bill.find(query).sort({ createdAt: -1 });
-      return res.status(200).json({ bills, total: bills.length });
+      const bills = await Bill.find(query).lean();
+      return res.json({ bills });
     }
 
-    // Paginated response
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-      return res.status(400).json({ error: 'Invalid page or limit parameters' });
-    }
-    const skip = (pageNum - 1) * limitNum;
-
-    // Fetch bills with pagination
     const bills = await Bill.find(query)
-      .skip(skip)
-      .limit(limitNum)
-      .sort({ createdAt: -1 });
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit))
+      .lean();
 
-    // Get total count for pagination metadata
     const total = await Bill.countDocuments(query);
+    const pages = Math.ceil(total / Number(limit)) || 1;
 
-    res.status(200).json({
-      bills,
-      total,
-      page: pageNum,
-      pages: Math.ceil(total / limitNum),
-    });
+    res.json({ bills, total, pages });
   } catch (error) {
-    console.error('Error fetching bill data:', error);
-    res.status(500).json({ error: 'Failed to fetch bill data' });
+    console.error('Error fetching bills:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// GET route to fetch a single bill by ID
-router.get('/billdata/:id', async (req, res) => {
-  try {
-    const bill = await Bill.findById(req.params.id);
-    if (!bill) {
-      return res.status(404).json({ error: 'Bill not found' });
-    }
-    res.status(200).json(bill);
-  } catch (error) {
-    console.error('Error fetching bill:', error);
-    res.status(500).json({ error: 'Failed to fetch bill' });
-  }
-});
-
-// PUT route to update bill data
+// Update a bill
 router.put('/billdata/:id', async (req, res) => {
   try {
-    const billData = req.body;
+    const { id } = req.params;
+    const { buyerName, billNo, billDate, products, gst, totalAmount, gstPercentage } = req.body;
 
     // Validate required fields
-    if (!billData.buyerName || !billData.billNo || !billData.billDate || !billData.products || !billData.gst || !billData.totalAmount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!buyerName || !billNo || !billDate || !products || products.length === 0 || !gst || !totalAmount || !gstPercentage) {
+      return res.status(400).json({ error: 'All fields are required, including at least one product and valid GST' });
     }
 
-    // Validate product count
-    if (billData.products.length === 0) {
-      return res.status(400).json({ error: 'At least one product is required' });
-    }
-    if (billData.products.length > 4) {
-      return res.status(400).json({ error: 'Maximum of 4 products allowed' });
+    // Validate GST structure
+    if (!validateGST(gst)) {
+      return res.status(400).json({ error: 'Invalid GST structure: Provide either SGST and CGST or IGST' });
     }
 
-    // Update the bill
+    // Validate GST percentage
+    if (![5, 12, 18, 28].includes(gstPercentage)) {
+      return res.status(400).json({ error: 'Invalid GST percentage: Must be 5, 12, 18, or 28' });
+    }
+
     const updatedBill = await Bill.findByIdAndUpdate(
-      req.params.id,
-      billData,
+      id,
+      { buyerName, billNo, billDate, products, gst, totalAmount, gstPercentage },
       { new: true, runValidators: true }
     );
 
@@ -170,30 +119,31 @@ router.put('/billdata/:id', async (req, res) => {
       return res.status(404).json({ error: 'Bill not found' });
     }
 
-    res.status(200).json({ message: 'Bill updated successfully', bill: updatedBill });
+    res.json({ message: 'Bill updated successfully', bill: updatedBill });
   } catch (error) {
-    console.error('Error updating bill data:', error);
+    console.error('Error updating bill:', error);
     if (error.code === 11000) {
       res.status(400).json({ error: 'Bill number already exists' });
-    } else if (error.name === 'ValidationError') {
-      res.status(400).json({ error: error.message });
     } else {
-      res.status(500).json({ error: 'Failed to update bill data' });
+      res.status(500).json({ error: 'Server error' });
     }
   }
 });
 
-// DELETE route to delete bill data
+// Delete a bill
 router.delete('/billdata/:id', async (req, res) => {
   try {
-    const bill = await Bill.findByIdAndDelete(req.params.id);
-    if (!bill) {
+    const { id } = req.params;
+    const deletedBill = await Bill.findByIdAndDelete(id);
+
+    if (!deletedBill) {
       return res.status(404).json({ error: 'Bill not found' });
     }
-    res.status(200).json({ message: 'Bill deleted successfully' });
+
+    res.json({ message: 'Bill deleted successfully' });
   } catch (error) {
     console.error('Error deleting bill:', error);
-    res.status(500).json({ error: 'Failed to delete bill' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
