@@ -1,4 +1,3 @@
-// models/bill.js
 const mongoose = require('mongoose');
 
 const productSchema = new mongoose.Schema({
@@ -88,6 +87,12 @@ const billSchema = new mongoose.Schema({
   pdfFileId: {
     type: mongoose.Schema.Types.ObjectId,
     required: false,
+  },
+  status: {
+    type: String,
+    required: true,
+    enum: ['Paid', 'Unpaid'],
+    default: 'Unpaid',
   },
   address: {
     type: String,

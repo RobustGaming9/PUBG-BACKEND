@@ -43,6 +43,7 @@ router.post('/billdata', async (req, res) => {
       branch,
       remarks,
       collectionAgent,
+      status,
     } = req.body;
 
     if (!buyerName || !billNo || !billDate || !products || products.length === 0 || !gst || !totalAmount || !gstPercentage) {
@@ -83,6 +84,7 @@ router.post('/billdata', async (req, res) => {
       branch,
       remarks,
       collectionAgent,
+      status: status || 'Unpaid', // Default to Unpaid if not provided
     });
 
     const savedBill = await bill.save();
@@ -190,6 +192,7 @@ router.put('/billdata/:id', async (req, res) => {
       branch,
       remarks,
       collectionAgent,
+      status,
     } = req.body;
 
     if (!buyerName || !billNo || !billDate || !products || products.length === 0 || !gst || !totalAmount || !gstPercentage) {
@@ -202,6 +205,10 @@ router.put('/billdata/:id', async (req, res) => {
 
     if (![5, 12, 18, 28].includes(gstPercentage)) {
       return res.status(400).json({ error: 'Invalid GST percentage: Must be 5, 12, 18, or 28' });
+    }
+
+    if (!['Paid', 'Unpaid'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status: Must be Paid or Unpaid' });
     }
 
     const updatedBill = await Bill.findByIdAndUpdate(
@@ -232,6 +239,7 @@ router.put('/billdata/:id', async (req, res) => {
         branch,
         remarks,
         collectionAgent,
+        status,
       },
       { new: true, runValidators: true }
     );
@@ -255,22 +263,30 @@ router.put('/billdata/:id', async (req, res) => {
 router.delete('/billdata/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedBill = await Bill.findByIdAndDelete(id);
+    const bill = await Bill.findById(id);
 
-    if (!deletedBill) {
+    if (!bill) {
       return res.status(404).json({ error: 'Bill not found' });
     }
 
-    // Delete associated PDF from GridFS
-    const gfs = getGfs();
-    if (deletedBill.pdfFileId) {
-      await gfs.delete(new mongoose.Types.ObjectId(deletedBill.pdfFileId));
+    // Delete associated PDF from GridFS if it exists
+    if (bill.pdfFileId) {
+      try {
+        const gfs = getGfs();
+        await gfs.delete(new mongoose.Types.ObjectId(bill.pdfFileId));
+      } catch (gfsError) {
+        console.error('Error deleting PDF from GridFS:', gfsError);
+        // Continue with bill deletion even if PDF deletion fails
+      }
     }
+
+    // Delete the bill
+    await Bill.findByIdAndDelete(id);
 
     res.json({ message: 'Bill deleted successfully' });
   } catch (error) {
     console.error('Error deleting bill:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: error.message || 'Server error' });
   }
 });
 
@@ -368,6 +384,8 @@ router.post('/billdata/:id/pdf', async (req, res) => {
     }
     doc.moveDown();
     doc.fontSize(14).text(`Total Amount: ₹${bill.totalAmount}`, { align: 'right' });
+    doc.moveDown();
+    doc.text(`Status: ${bill.status}`);
 
     if (bill.remarks) {
       doc.moveDown();
