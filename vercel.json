@@ -8,12 +8,12 @@
   ],
   "routes": [
     {
-        "src": "/routes/Tournaments/(.*)",
-        "dest": "routes/Tournaments.js"
+      "src": "/api/(.*)",
+      "dest": "/index.js"
     },
     {
       "src": "/(.*)",
-      "dest": "index.js"
+      "dest": "/index.js"
     }
   ]
 }

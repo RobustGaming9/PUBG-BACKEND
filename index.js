@@ -14,6 +14,8 @@ app.use(cors({
     origin: ['https://leaderboard-psi-seven.vercel.app/'],
     credentials: true,
   }));
-app.listen(port,()=>{
-    console.log("Backend is running on port:"+port);
-})
+// app.listen(port,()=>{
+//     console.log("Backend is running on port:"+port);
+// })
+
+module.exports = app;
