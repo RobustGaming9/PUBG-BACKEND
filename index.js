@@ -10,10 +10,7 @@ const tournamentRoutes = require('./routes/Tournaments');
 app.use(cors());
 app.use(express.json());
 app.use('/api/tournaments', tournamentRoutes);
-app.use(cors({
-    origin: ['https://leaderboard-psi-seven.vercel.app/'],
-    credentials: true,
-  }));
+app.use(cors({ origin: '*', credentials: true }));
 // app.listen(port,()=>{
 //     console.log("Backend is running on port:"+port);
 // })
