@@ -1,6 +1,6 @@
 const mongoose = require("mongoose"); 
 mongoose.
-connect(process.env.URL).then(()=>{
+connect("mongodb+srv://gamingrobust1:gamingrobust1@cluster0.jwbxrs9.mongodb.net/").then(()=>{
     console.log("Database Connected successfully...");
 }).catch((e)=>{
     console.log("Error...")
