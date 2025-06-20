@@ -8,6 +8,10 @@
   ],
   "routes": [
     {
+        "src": "/routes/Tournaments/(.*)",
+        "dest": "routes/Tournaments.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "index.js"
     }
