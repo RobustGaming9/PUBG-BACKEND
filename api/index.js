@@ -1,11 +1,11 @@
 require('dotenv').config();
-require('./database/db');
+require('../database/db');
 
 const express = require("express");
 const app = express();
 const port = process.env.PORT;
 const  cors = require("cors");
-const tournamentRoutes = require('./routes/Tournaments');
+const tournamentRoutes = require('../routes/Tournaments');
 
 app.use(cors());
 app.use(express.json());
