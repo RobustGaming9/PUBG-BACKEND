@@ -3,17 +3,17 @@ require('./database/db');
 
 const express = require("express");
 const app = express();
-const cors = require("cors");
+const port = process.env.PORT;
+const  cors = require("cors");
 const tournamentRoutes = require('./routes/Tournaments');
 
-// Middleware
-app.use(cors({
-  origin: ['https://leaderboard-psi-seven.vercel.app'],
-  credentials: true
-}));
+app.use(cors());
 app.use(express.json());
-
-// Routes
 app.use('/api/tournaments', tournamentRoutes);
-
-module.exports = app;
+app.use(cors({
+    origin: ['https://leaderboard-psi-seven.vercel.app/'],
+    credentials: true,
+  }));
+app.listen(port,()=>{
+    console.log("Backend is running on port:"+port);
+})
