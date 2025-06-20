@@ -16,3 +16,6 @@ app.use(cors({ origin: '*', credentials: true }));
 // })
 
 module.exports = app;
+
+const serverless = require('serverless-http');
+module.exports = serverless(app);
