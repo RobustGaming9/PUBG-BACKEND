@@ -1,13 +1,13 @@
 require('dotenv').config();
 require('./database/db');
 
-const express = require('express');
-const cors = require('cors');
-const app = express();
-
+const express = require("express");
+const cors = require("cors");
 const tournamentRoutes = require('./routes/Tournaments');
 
-// ✅ CORS middleware FIRST
+const app = express();
+
+// ✅ CORS middleware
 app.use(cors({
   origin: 'https://leaderboard-psi-seven.vercel.app',
   credentials: true,
@@ -15,17 +15,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type']
 }));
 
-// ✅ Respond to all OPTIONS requests (preflight)
+// ✅ Handle preflight requests
 app.options('*', cors());
 
-// ✅ Body parser
 app.use(express.json());
-
-// ✅ Routes
 app.use('/api/tournaments', tournamentRoutes);
 
-// ✅ Start server
 const port = process.env.PORT || 5050;
 app.listen(port, () => {
-  console.log(`Backend running on port ${port}`);
+  console.log(`Backend is running on port: ${port}`);
 });
