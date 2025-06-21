@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Tournament = require('../models/tournaments');
-const Team = require('../models/team');
+const Team = require('../models/tournaments');
 const mongoose = require('mongoose');
 
 // Create a new tournament
