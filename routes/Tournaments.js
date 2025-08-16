@@ -3,18 +3,40 @@ const router = express.Router();
 const { Tournament, Team } = require('../models/tournaments');
 const mongoose = require('mongoose');
 
-// ✅ Utility to convert Google Drive link to direct-view URL
+// Utility to convert Google Drive link to direct-view URL
 function convertDriveLink(link) {
-  if (link && link.includes('drive.google.com')) {
-    const match = link.match(/\/d\/(.*?)\//);
+  if (!link || typeof link !== 'string' || !link.trim()) {
+    throw new Error('Invalid or missing logo URL');
+  }
+  if (link.includes('drive.google.com')) {
+    // Handle standard file link: https://drive.google.com/file/d/<fileId>/view
+    let match = link.match(/\/d\/(.*?)\//);
     if (match && match[1]) {
       return `https://drive.google.com/uc?export=view&id=${match[1]}`;
     }
+    // Handle alternative link: https://drive.google.com/open?id=<fileId>
+    match = link.match(/id=([^&]+)/);
+    if (match && match[1]) {
+      return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+    }
+    throw new Error('Invalid Google Drive link format');
   }
-  return link;
+  return link; // Return original link if not a Google Drive link
 }
 
-// ✅ Create a new tournament
+// Optional: Validate Google Drive link accessibility (uncomment if needed)
+// const axios = require('axios');
+// async function validateDriveLink(link) {
+//   try {
+//     const response = await axios.head(link);
+//     return response.status === 200;
+//   } catch (error) {
+//     console.error(`Failed to validate link ${link}:`, error.message);
+//     return false;
+//   }
+// }
+
+// Create a new tournament
 router.post('/', async (req, res) => {
   try {
     const { tournamentName, startDate, endDate, numberOfTeams } = req.body;
@@ -27,11 +49,12 @@ router.post('/', async (req, res) => {
     await tournament.save();
     res.status(201).send(tournament);
   } catch (error) {
-    res.status(400).send(error);
+    console.error('Error creating tournament:', error);
+    res.status(400).send({ error: error.message || 'Failed to create tournament' });
   }
 });
 
-// ✅ Get all tournaments
+// Get all tournaments
 router.get("/", async (req, res) => {
   console.log("➡️ /api/tournaments GET called");
   try {
@@ -40,22 +63,23 @@ router.get("/", async (req, res) => {
     res.send(tournaments);
   } catch (error) {
     console.error("❌ Error fetching tournaments:", error);
-    res.status(500).send(error);
+    res.status(500).send({ error: error.message || 'Failed to fetch tournaments' });
   }
 });
 
-// ✅ Get a specific tournament
+// Get a specific tournament
 router.get('/:id', async (req, res) => {
   try {
     const tournament = await Tournament.findById(req.params.id);
     if (!tournament) return res.status(404).send('Tournament not found');
     res.send(tournament);
   } catch (error) {
-    res.status(500).send(error);
+    console.error('Error fetching tournament:', error);
+    res.status(500).send({ error: error.message || 'Failed to fetch tournament' });
   }
 });
 
-// ✅ Delete a tournament and its teams
+// Delete a tournament and its teams
 router.delete('/:id', async (req, res) => {
   try {
     const tournament = await Tournament.findByIdAndDelete(req.params.id);
@@ -65,17 +89,18 @@ router.delete('/:id', async (req, res) => {
 
     res.send({ message: 'Tournament and related teams deleted successfully' });
   } catch (error) {
-    res.status(500).send(error);
+    console.error('Error deleting tournament:', error);
+    res.status(500).send({ error: error.message || 'Failed to delete tournament' });
   }
 });
 
-// ✅ Add all teams at once to a tournament
+// Add all teams at once to a tournament
 router.post('/:id/teams', async (req, res) => {
   try {
     const teamsToAdd = req.body;
 
     if (!Array.isArray(teamsToAdd) || teamsToAdd.length === 0) {
-      return res.status(400).send({ error: 'Provide an array of teams' });
+      return res.status(400).send({ error: 'Provide a non-empty array of teams' });
     }
 
     const tournament = await Tournament.findById(req.params.id);
@@ -94,19 +119,29 @@ router.post('/:id/teams', async (req, res) => {
       if (!team.teamName || typeof team.teamName !== 'string' || !team.teamName.trim()) {
         return res.status(400).send({ error: 'Each team must have a valid teamName' });
       }
-      if (!team.logo) {
-        return res.status(400).send({ error: 'Each team must have a logo link' });
+      if (!team.logo || typeof team.logo !== 'string' || !team.logo.trim()) {
+        return res.status(400).send({ error: 'Each team must have a valid logo URL' });
       }
 
       if (existingTeams.some(existing => existing.teamName === team.teamName.trim())) {
         return res.status(400).send({ error: `Team name '${team.teamName}' already exists in this tournament` });
       }
 
+      console.log(`Processing team: ${team.teamName}, logo: ${team.logo}`);
+      const convertedLogo = convertDriveLink(team.logo);
+      console.log(`Converted logo: ${convertedLogo}`);
+
+      // Optional: Validate accessibility (uncomment if using axios)
+      // const isAccessible = await validateDriveLink(convertedLogo);
+      // if (!isAccessible) {
+      //   return res.status(400).send({ error: `Logo URL for team ${team.teamName} is not accessible` });
+      // }
+
       formattedTeams.push({
         _id: new mongoose.Types.ObjectId(),
         tournamentId: req.params.id,
         teamName: team.teamName.trim(),
-        logo: convertDriveLink(team.logo), // ✅ Convert Google Drive link here
+        logo: convertedLogo,
         kills: typeof team.kills === 'number' ? team.kills : 0,
         points: typeof team.points === 'number' ? team.points : 0,
         eliminated: typeof team.eliminated === 'boolean' ? team.eliminated : false
@@ -116,11 +151,12 @@ router.post('/:id/teams', async (req, res) => {
     const savedTeams = await Team.insertMany(formattedTeams);
     res.status(201).send(savedTeams);
   } catch (error) {
-    res.status(500).send({ error: error.message || 'Failed to add teams' });
+    console.error('Error saving teams:', error);
+    res.status(400).send({ error: error.message || 'Failed to add teams' });
   }
 });
 
-// ✅ Get all teams of a specific tournament
+// Get all teams of a specific tournament
 router.get('/:id/teams', async (req, res) => {
   try {
     const teams = await Team.find({ tournamentId: req.params.id });
@@ -132,7 +168,7 @@ router.get('/:id/teams', async (req, res) => {
     const result = teams.map(team => ({
       _id: team._id,
       teamName: team.teamName,
-      logo: convertDriveLink(team.logo), // ✅ Always return converted link
+      logo: convertDriveLink(team.logo),
       kills: team.kills,
       points: team.points,
       totalPoints: team.kills + team.points,
@@ -141,11 +177,12 @@ router.get('/:id/teams', async (req, res) => {
 
     res.send(result);
   } catch (error) {
-    res.status(500).send(error);
+    console.error('Error fetching teams:', error);
+    res.status(500).send({ error: error.message || 'Failed to fetch teams' });
   }
 });
 
-// ✅ Bulk update teams
+// Bulk update teams
 router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
   try {
     const tournamentId = req.params.tournamentId;
@@ -174,7 +211,11 @@ router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
         setFields.teamName = changes.teamName.trim();
       }
       if (typeof changes.eliminated === 'boolean') setFields.eliminated = changes.eliminated;
-      if (changes.logo) setFields.logo = convertDriveLink(changes.logo); // ✅ Convert on update
+      if (changes.logo && typeof changes.logo === 'string' && changes.logo.trim()) {
+        const convertedLogo = convertDriveLink(changes.logo);
+        setFields.logo = convertedLogo;
+        console.log(`Bulk update - Team ID: ${teamId}, Converted logo: ${convertedLogo}`);
+      }
 
       if (Object.keys(setFields).length === 0) {
         throw new Error(`No valid fields to update for team ${teamId}`);
@@ -192,11 +233,12 @@ router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
     const updatedTeams = await Team.find({ tournamentId });
     res.json(updatedTeams);
   } catch (error) {
-    res.status(500).json({ error: error.message || 'Failed to update teams' });
+    console.error('Error bulk updating teams:', error);
+    res.status(400).json({ error: error.message || 'Failed to update teams' });
   }
 });
 
-// ✅ Update a specific team
+// Update a specific team
 router.put('/:id/teams/:teamId', async (req, res) => {
   try {
     const { teamName, kills, points, eliminated, logo } = req.body;
@@ -212,15 +254,22 @@ router.put('/:id/teams/:teamId', async (req, res) => {
       }
     }
 
+    const updateFields = {};
+    if (teamName && typeof teamName === 'string' && teamName.trim()) {
+      updateFields.teamName = teamName.trim();
+    }
+    if (typeof kills === 'number') updateFields.kills = kills;
+    if (typeof points === 'number') updateFields.points = points;
+    if (typeof eliminated === 'boolean') updateFields.eliminated = eliminated;
+    if (logo && typeof logo === 'string' && logo.trim()) {
+      const convertedLogo = convertDriveLink(logo);
+      updateFields.logo = convertedLogo;
+      console.log(`Updating team ${req.params.teamId}, Converted logo: ${convertedLogo}`);
+    }
+
     const team = await Team.findOneAndUpdate(
       { _id: req.params.teamId, tournamentId: req.params.id },
-      {
-        ...(teamName && { teamName: teamName.trim() }),
-        ...(kills !== undefined && { kills }),
-        ...(points !== undefined && { points }),
-        ...(eliminated !== undefined && { eliminated }),
-        ...(logo && { logo: convertDriveLink(logo) }) // ✅ Convert Drive link
-      },
+      { $set: updateFields },
       { new: true }
     );
 
@@ -228,11 +277,12 @@ router.put('/:id/teams/:teamId', async (req, res) => {
 
     res.send(team);
   } catch (error) {
-    res.status(400).send(error);
+    console.error('Error updating team:', error);
+    res.status(400).send({ error: error.message || 'Failed to update team' });
   }
 });
 
-// ✅ Delete a specific team from a tournament
+// Delete a specific team from a tournament
 router.delete('/:id/teams/:teamId', async (req, res) => {
   try {
     const team = await Team.findOneAndDelete({
@@ -244,11 +294,12 @@ router.delete('/:id/teams/:teamId', async (req, res) => {
 
     res.send({ message: 'Team deleted successfully' });
   } catch (error) {
-    res.status(500).send(error);
+    console.error('Error deleting team:', error);
+    res.status(500).send({ error: error.message || 'Failed to delete team' });
   }
 });
 
-// ✅ Get sorted points table
+// Get sorted points table
 router.get('/:id/points', async (req, res) => {
   try {
     const teams = await Team.find({ tournamentId: req.params.id });
@@ -264,7 +315,7 @@ router.get('/:id/points', async (req, res) => {
           acc[team.teamName] = {
             _id: team._id,
             teamName: team.teamName,
-            logo: convertDriveLink(team.logo), // ✅ Ensure converted
+            logo: convertDriveLink(team.logo),
             kills: team.kills,
             points: team.points,
             totalPoints,
@@ -282,7 +333,8 @@ router.get('/:id/points', async (req, res) => {
 
     res.send(processedTeams);
   } catch (error) {
-    res.status(500).send(error);
+    console.error('Error fetching points table:', error);
+    res.status(500).send({ error: error.message || 'Failed to fetch points table' });
   }
 });
 
