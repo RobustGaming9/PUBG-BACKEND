@@ -24,18 +24,6 @@ function convertDriveLink(link) {
   return link; // Return original link if not a Google Drive link
 }
 
-// Optional: Validate Google Drive link accessibility (uncomment if needed)
-// const axios = require('axios');
-// async function validateDriveLink(link) {
-//   try {
-//     const response = await axios.head(link);
-//     return response.status === 200;
-//   } catch (error) {
-//     console.error(`Failed to validate link ${link}:`, error.message);
-//     return false;
-//   }
-// }
-
 // Create a new tournament
 router.post('/', async (req, res) => {
   try {
@@ -98,6 +86,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/teams', async (req, res) => {
   try {
     const teamsToAdd = req.body;
+    console.log('Received teamsToAdd:', JSON.stringify(teamsToAdd, null, 2));
 
     if (!Array.isArray(teamsToAdd) || teamsToAdd.length === 0) {
       return res.status(400).send({ error: 'Provide a non-empty array of teams' });
@@ -117,25 +106,28 @@ router.post('/:id/teams', async (req, res) => {
 
     for (const team of teamsToAdd) {
       if (!team.teamName || typeof team.teamName !== 'string' || !team.teamName.trim()) {
+        console.error(`Validation failed for team: ${JSON.stringify(team)} - Invalid teamName`);
         return res.status(400).send({ error: 'Each team must have a valid teamName' });
       }
       if (!team.logo || typeof team.logo !== 'string' || !team.logo.trim()) {
+        console.error(`Validation failed for team: ${JSON.stringify(team)} - Invalid logo URL`);
         return res.status(400).send({ error: 'Each team must have a valid logo URL' });
       }
 
       if (existingTeams.some(existing => existing.teamName === team.teamName.trim())) {
+        console.error(`Duplicate team name: ${team.teamName}`);
         return res.status(400).send({ error: `Team name '${team.teamName}' already exists in this tournament` });
       }
 
       console.log(`Processing team: ${team.teamName}, logo: ${team.logo}`);
-      const convertedLogo = convertDriveLink(team.logo);
+      let convertedLogo;
+      try {
+        convertedLogo = convertDriveLink(team.logo);
+      } catch (error) {
+        console.error(`Error converting logo for team ${team.teamName}: ${error.message}`);
+        return res.status(400).send({ error: `Invalid logo URL for team ${team.teamName}: ${error.message}` });
+      }
       console.log(`Converted logo: ${convertedLogo}`);
-
-      // Optional: Validate accessibility (uncomment if using axios)
-      // const isAccessible = await validateDriveLink(convertedLogo);
-      // if (!isAccessible) {
-      //   return res.status(400).send({ error: `Logo URL for team ${team.teamName} is not accessible` });
-      // }
 
       formattedTeams.push({
         _id: new mongoose.Types.ObjectId(),
@@ -148,10 +140,18 @@ router.post('/:id/teams', async (req, res) => {
       });
     }
 
-    const savedTeams = await Team.insertMany(formattedTeams);
+    console.log('Attempting to save teams:', JSON.stringify(formattedTeams, null, 2));
+    const savedTeams = await Team.insertMany(formattedTeams, { runValidators: true });
     res.status(201).send(savedTeams);
   } catch (error) {
-    console.error('Error saving teams:', error);
+    console.error('Error saving teams:', error, 'Request body:', JSON.stringify(req.body, null, 2));
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message).join(', ');
+      return res.status(400).send({ error: `Validation failed: ${messages}` });
+    }
+    if (error.code === 11000) {
+      return res.status(400).send({ error: `Duplicate team name in tournament` });
+    }
     res.status(400).send({ error: error.message || 'Failed to add teams' });
   }
 });
@@ -234,6 +234,13 @@ router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
     res.json(updatedTeams);
   } catch (error) {
     console.error('Error bulk updating teams:', error);
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message).join(', ');
+      return res.status(400).send({ error: `Validation failed: ${messages}` });
+    }
+    if (error.code === 11000) {
+      return res.status(400).send({ error: `Duplicate team name in tournament` });
+    }
     res.status(400).json({ error: error.message || 'Failed to update teams' });
   }
 });
@@ -270,7 +277,7 @@ router.put('/:id/teams/:teamId', async (req, res) => {
     const team = await Team.findOneAndUpdate(
       { _id: req.params.teamId, tournamentId: req.params.id },
       { $set: updateFields },
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     if (!team) return res.status(404).send('Team not found in this tournament');
@@ -278,6 +285,13 @@ router.put('/:id/teams/:teamId', async (req, res) => {
     res.send(team);
   } catch (error) {
     console.error('Error updating team:', error);
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message).join(', ');
+      return res.status(400).send({ error: `Validation failed: ${messages}` });
+    }
+    if (error.code === 11000) {
+      return res.status(400).send({ error: `Duplicate team name in tournament` });
+    }
     res.status(400).send({ error: error.message || 'Failed to update team' });
   }
 });
