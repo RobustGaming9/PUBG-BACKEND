@@ -3,27 +3,6 @@ const router = express.Router();
 const { Tournament, Team } = require('../models/tournaments');
 const mongoose = require('mongoose');
 
-// Utility to convert Google Drive link to direct-view URL
-function convertDriveLink(link) {
-  if (!link || typeof link !== 'string' || !link.trim()) {
-    throw new Error('Invalid or missing logo URL');
-  }
-  if (link.includes('drive.google.com')) {
-    // Handle standard file link: https://drive.google.com/file/d/<fileId>/view
-    let match = link.match(/\/d\/(.*?)\//);
-    if (match && match[1]) {
-      return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-    }
-    // Handle alternative link: https://drive.google.com/open?id=<fileId>
-    match = link.match(/id=([^&]+)/);
-    if (match && match[1]) {
-      return `https://drive.google.com/uc?export=view&id=${match[1]}`;
-    }
-    throw new Error('Invalid Google Drive link format');
-  }
-  return link; // Return original link if not a Google Drive link
-}
-
 // Create a new tournament
 router.post('/', async (req, res) => {
   try {
@@ -109,31 +88,16 @@ router.post('/:id/teams', async (req, res) => {
         console.error(`Validation failed for team: ${JSON.stringify(team)} - Invalid teamName`);
         return res.status(400).send({ error: 'Each team must have a valid teamName' });
       }
-      if (!team.logo || typeof team.logo !== 'string' || !team.logo.trim()) {
-        console.error(`Validation failed for team: ${JSON.stringify(team)} - Invalid logo URL`);
-        return res.status(400).send({ error: 'Each team must have a valid logo URL' });
-      }
 
       if (existingTeams.some(existing => existing.teamName === team.teamName.trim())) {
         console.error(`Duplicate team name: ${team.teamName}`);
         return res.status(400).send({ error: `Team name '${team.teamName}' already exists in this tournament` });
       }
 
-      console.log(`Processing team: ${team.teamName}, logo: ${team.logo}`);
-      let convertedLogo;
-      try {
-        convertedLogo = convertDriveLink(team.logo);
-      } catch (error) {
-        console.error(`Error converting logo for team ${team.teamName}: ${error.message}`);
-        return res.status(400).send({ error: `Invalid logo URL for team ${team.teamName}: ${error.message}` });
-      }
-      console.log(`Converted logo: ${convertedLogo}`);
-
       formattedTeams.push({
         _id: new mongoose.Types.ObjectId(),
         tournamentId: req.params.id,
         teamName: team.teamName.trim(),
-        logo: convertedLogo,
         kills: typeof team.kills === 'number' ? team.kills : 0,
         points: typeof team.points === 'number' ? team.points : 0,
         eliminated: typeof team.eliminated === 'boolean' ? team.eliminated : false
@@ -168,7 +132,6 @@ router.get('/:id/teams', async (req, res) => {
     const result = teams.map(team => ({
       _id: team._id,
       teamName: team.teamName,
-      logo: convertDriveLink(team.logo),
       kills: team.kills,
       points: team.points,
       totalPoints: team.kills + team.points,
@@ -211,11 +174,6 @@ router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
         setFields.teamName = changes.teamName.trim();
       }
       if (typeof changes.eliminated === 'boolean') setFields.eliminated = changes.eliminated;
-      if (changes.logo && typeof changes.logo === 'string' && changes.logo.trim()) {
-        const convertedLogo = convertDriveLink(changes.logo);
-        setFields.logo = convertedLogo;
-        console.log(`Bulk update - Team ID: ${teamId}, Converted logo: ${convertedLogo}`);
-      }
 
       if (Object.keys(setFields).length === 0) {
         throw new Error(`No valid fields to update for team ${teamId}`);
@@ -248,7 +206,7 @@ router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
 // Update a specific team
 router.put('/:id/teams/:teamId', async (req, res) => {
   try {
-    const { teamName, kills, points, eliminated, logo } = req.body;
+    const { teamName, kills, points, eliminated } = req.body;
 
     if (teamName && typeof teamName === 'string' && teamName.trim()) {
       const existingTeam = await Team.findOne({
@@ -268,11 +226,6 @@ router.put('/:id/teams/:teamId', async (req, res) => {
     if (typeof kills === 'number') updateFields.kills = kills;
     if (typeof points === 'number') updateFields.points = points;
     if (typeof eliminated === 'boolean') updateFields.eliminated = eliminated;
-    if (logo && typeof logo === 'string' && logo.trim()) {
-      const convertedLogo = convertDriveLink(logo);
-      updateFields.logo = convertedLogo;
-      console.log(`Updating team ${req.params.teamId}, Converted logo: ${convertedLogo}`);
-    }
 
     const team = await Team.findOneAndUpdate(
       { _id: req.params.teamId, tournamentId: req.params.id },
@@ -329,7 +282,6 @@ router.get('/:id/points', async (req, res) => {
           acc[team.teamName] = {
             _id: team._id,
             teamName: team.teamName,
-            logo: convertDriveLink(team.logo),
             kills: team.kills,
             points: team.points,
             totalPoints,
