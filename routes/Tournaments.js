@@ -1,10 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const Tournament = require('../models/tournaments');
-const Team = require('../models/tournaments');
+const { Tournament, Team } = require('../models/tournaments');
 const mongoose = require('mongoose');
 
-// Create a new tournament
+// ✅ Utility to convert Google Drive link to direct-view URL
+function convertDriveLink(link) {
+  if (link && link.includes('drive.google.com')) {
+    const match = link.match(/\/d\/(.*?)\//);
+    if (match && match[1]) {
+      return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+    }
+  }
+  return link;
+}
+
+// ✅ Create a new tournament
 router.post('/', async (req, res) => {
   try {
     const { tournamentName, startDate, endDate, numberOfTeams } = req.body;
@@ -21,17 +31,20 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Get all tournaments
-router.get('/', async (req, res) => {
+// ✅ Get all tournaments
+router.get("/", async (req, res) => {
+  console.log("➡️ /api/tournaments GET called");
   try {
     const tournaments = await Tournament.find();
+    console.log("✅ DB returned tournaments:", tournaments.length);
     res.send(tournaments);
   } catch (error) {
+    console.error("❌ Error fetching tournaments:", error);
     res.status(500).send(error);
   }
 });
 
-// Get a specific tournament
+// ✅ Get a specific tournament
 router.get('/:id', async (req, res) => {
   try {
     const tournament = await Tournament.findById(req.params.id);
@@ -42,7 +55,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Delete a tournament and its teams
+// ✅ Delete a tournament and its teams
 router.delete('/:id', async (req, res) => {
   try {
     const tournament = await Tournament.findByIdAndDelete(req.params.id);
@@ -56,7 +69,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Add all teams at once to a tournament
+// ✅ Add all teams at once to a tournament
 router.post('/:id/teams', async (req, res) => {
   try {
     const teamsToAdd = req.body;
@@ -81,6 +94,9 @@ router.post('/:id/teams', async (req, res) => {
       if (!team.teamName || typeof team.teamName !== 'string' || !team.teamName.trim()) {
         return res.status(400).send({ error: 'Each team must have a valid teamName' });
       }
+      if (!team.logo) {
+        return res.status(400).send({ error: 'Each team must have a logo link' });
+      }
 
       if (existingTeams.some(existing => existing.teamName === team.teamName.trim())) {
         return res.status(400).send({ error: `Team name '${team.teamName}' already exists in this tournament` });
@@ -90,6 +106,7 @@ router.post('/:id/teams', async (req, res) => {
         _id: new mongoose.Types.ObjectId(),
         tournamentId: req.params.id,
         teamName: team.teamName.trim(),
+        logo: convertDriveLink(team.logo), // ✅ Convert Google Drive link here
         kills: typeof team.kills === 'number' ? team.kills : 0,
         points: typeof team.points === 'number' ? team.points : 0,
         eliminated: typeof team.eliminated === 'boolean' ? team.eliminated : false
@@ -103,7 +120,7 @@ router.post('/:id/teams', async (req, res) => {
   }
 });
 
-// Get all teams of a specific tournament
+// ✅ Get all teams of a specific tournament
 router.get('/:id/teams', async (req, res) => {
   try {
     const teams = await Team.find({ tournamentId: req.params.id });
@@ -115,6 +132,7 @@ router.get('/:id/teams', async (req, res) => {
     const result = teams.map(team => ({
       _id: team._id,
       teamName: team.teamName,
+      logo: convertDriveLink(team.logo), // ✅ Always return converted link
       kills: team.kills,
       points: team.points,
       totalPoints: team.kills + team.points,
@@ -127,79 +145,37 @@ router.get('/:id/teams', async (req, res) => {
   }
 });
 
-// Bulk update teams
+// ✅ Bulk update teams
 router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
   try {
     const tournamentId = req.params.tournamentId;
     const updates = req.body;
 
-    // Validate that the request body is a non-empty array
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'Request body must be a non-empty array of team updates' });
     }
 
-    // Fetch team IDs and names to validate
     const teams = await Team.find({ tournamentId }).select('_id teamName');
     const validTeamIds = teams.map(team => team._id.toString());
-    const teamIdToNameMap = new Map(teams.map(team => [team._id.toString(), team.teamName]));
 
-    // Check for invalid team IDs
     const teamIds = updates.map(update => update.teamId);
     const invalidIds = teamIds.filter(id => !validTeamIds.includes(id));
     if (invalidIds.length > 0) {
       return res.status(400).json({ error: `Invalid team IDs: ${invalidIds.join(', ')}` });
     }
 
-    // Check for duplicate team names only when teamName is being changed
-    const nameChangeUpdates = updates.filter(update => update.changes.teamName && 
-      update.changes.teamName.trim() !== teamIdToNameMap.get(update.teamId));
-    
-    if (nameChangeUpdates.length > 0) {
-      // Check for duplicates among the updates themselves
-      const nameToTeams = new Map();
-      for (const update of nameChangeUpdates) {
-        const newName = update.changes.teamName.trim();
-        if (!nameToTeams.has(newName)) {
-          nameToTeams.set(newName, []);
-        }
-        nameToTeams.get(newName).push(update.teamId);
-      }
-      const internalDuplicates = [...nameToTeams.entries()]
-        .filter(([_, teamIds]) => teamIds.length > 1)
-        .map(([name]) => name);
-      if (internalDuplicates.length > 0) {
-        return res.status(400).json({ error: `Duplicate team names within updates: ${internalDuplicates.join(', ')}` });
-      }
-
-      // Check for conflicts with existing teams (excluding the team itself)
-      const orConditions = nameChangeUpdates.map(update => ({
-        teamName: update.changes.teamName.trim(),
-        _id: { $ne: update.teamId },
-        tournamentId
-      }));
-      const conflictingTeams = await Team.find({ $or: orConditions }).select('teamName');
-      if (conflictingTeams.length > 0) {
-        const duplicateNames = conflictingTeams.map(team => team.teamName);
-        return res.status(400).json({ error: `Duplicate team names: ${duplicateNames.join(', ')}` });
-      }
-    }
-
-    // Prepare bulk operations
     const bulkOps = updates.map(update => {
       const { teamId, changes } = update;
       const setFields = {};
 
-      // Handle fields with $set
       if (typeof changes.kills === 'number') setFields.kills = changes.kills;
       if (typeof changes.points === 'number') setFields.points = changes.points;
-      if (changes.teamName && 
-          typeof changes.teamName === 'string' && 
-          changes.teamName.trim() !== teamIdToNameMap.get(teamId)) {
+      if (changes.teamName && typeof changes.teamName === 'string' && changes.teamName.trim()) {
         setFields.teamName = changes.teamName.trim();
       }
       if (typeof changes.eliminated === 'boolean') setFields.eliminated = changes.eliminated;
+      if (changes.logo) setFields.logo = convertDriveLink(changes.logo); // ✅ Convert on update
 
-      // Ensure there's something to update
       if (Object.keys(setFields).length === 0) {
         throw new Error(`No valid fields to update for team ${teamId}`);
       }
@@ -212,24 +188,19 @@ router.put('/:tournamentId/teams/bulk-update', async (req, res) => {
       };
     });
 
-    // Execute bulk write operation
     await Team.bulkWrite(bulkOps);
-
-    // Return updated teams
     const updatedTeams = await Team.find({ tournamentId });
     res.json(updatedTeams);
   } catch (error) {
-    console.error('Bulk update error:', error);
     res.status(500).json({ error: error.message || 'Failed to update teams' });
   }
 });
 
-// Update a specific team
+// ✅ Update a specific team
 router.put('/:id/teams/:teamId', async (req, res) => {
   try {
-    const { teamName, kills, points, eliminated } = req.body;
+    const { teamName, kills, points, eliminated, logo } = req.body;
 
-    // Check for duplicate team name if teamName is being updated
     if (teamName && typeof teamName === 'string' && teamName.trim()) {
       const existingTeam = await Team.findOne({
         tournamentId: req.params.id,
@@ -244,10 +215,11 @@ router.put('/:id/teams/:teamId', async (req, res) => {
     const team = await Team.findOneAndUpdate(
       { _id: req.params.teamId, tournamentId: req.params.id },
       {
-        ...(teamName && typeof teamName === 'string' && teamName.trim() && { teamName: teamName.trim() }),
+        ...(teamName && { teamName: teamName.trim() }),
         ...(kills !== undefined && { kills }),
         ...(points !== undefined && { points }),
-        ...(eliminated !== undefined && { eliminated })
+        ...(eliminated !== undefined && { eliminated }),
+        ...(logo && { logo: convertDriveLink(logo) }) // ✅ Convert Drive link
       },
       { new: true }
     );
@@ -260,7 +232,7 @@ router.put('/:id/teams/:teamId', async (req, res) => {
   }
 });
 
-// Delete a specific team from a tournament
+// ✅ Delete a specific team from a tournament
 router.delete('/:id/teams/:teamId', async (req, res) => {
   try {
     const team = await Team.findOneAndDelete({
@@ -276,7 +248,7 @@ router.delete('/:id/teams/:teamId', async (req, res) => {
   }
 });
 
-// Get sorted points table
+// ✅ Get sorted points table
 router.get('/:id/points', async (req, res) => {
   try {
     const teams = await Team.find({ tournamentId: req.params.id });
@@ -288,13 +260,11 @@ router.get('/:id/points', async (req, res) => {
     const processedTeams = Object.values(
       teams.reduce((acc, team) => {
         const totalPoints = team.kills + team.points;
-        if (
-          !acc[team.teamName] ||
-          totalPoints > (acc[team.teamName].kills + acc[team.teamName].points)
-        ) {
+        if (!acc[team.teamName] || totalPoints > (acc[team.teamName].kills + acc[team.teamName].points)) {
           acc[team.teamName] = {
             _id: team._id,
             teamName: team.teamName,
+            logo: convertDriveLink(team.logo), // ✅ Ensure converted
             kills: team.kills,
             points: team.points,
             totalPoints,
