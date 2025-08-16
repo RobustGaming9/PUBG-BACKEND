@@ -15,12 +15,15 @@ const TeamSchema = new mongoose.Schema({
     ref: "Tournament", 
     required: true 
   },
-  teamName: { type: String, required: true },
-  logo: { type: String, required: true },  // ✅ logo string (Google Drive, Cloudinary, etc.)
+  teamName: { type: String, required: true, trim: true },
+  logo: { type: String },  // logo string (Google Drive, Cloudinary, etc.)
   kills: { type: Number, default: 0 },
   points: { type: Number, default: 0 },
   eliminated: { type: Boolean, default: false }
 });
+
+// Ensure unique team names per tournament
+TeamSchema.index({ tournamentId: 1, teamName: 1 }, { unique: true });
 
 const Tournament = mongoose.model("Tournament", TournamentSchema);
 const Team = mongoose.model("Team", TeamSchema);
