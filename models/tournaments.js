@@ -1,24 +1,28 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const tournamentSchema = new mongoose.Schema({
+// Tournament Schema
+const TournamentSchema = new mongoose.Schema({
   tournamentName: { type: String, required: true },
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
-  numberOfTeams: { type: Number, required: true } // ✅ Added
+  numberOfTeams: { type: Number, required: true }
 });
 
-module.exports = mongoose.model('Tournament', tournamentSchema);
-
-const teamSchema = new mongoose.Schema({
-  _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
-  tournamentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', required: true },
+// Team Schema
+const TeamSchema = new mongoose.Schema({
+  tournamentId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: "Tournament", 
+    required: true 
+  },
   teamName: { type: String, required: true },
+  logo: { type: String, required: true },  // ✅ logo string (Google Drive, Cloudinary, etc.)
   kills: { type: Number, default: 0 },
   points: { type: Number, default: 0 },
   eliminated: { type: Boolean, default: false }
 });
 
-// Ensure unique team names within a tournament
-teamSchema.index({ tournamentId: 1, teamName: 1 }, { unique: true });
+const Tournament = mongoose.model("Tournament", TournamentSchema);
+const Team = mongoose.model("Team", TeamSchema);
 
-module.exports = mongoose.model('Team', teamSchema);
+module.exports = { Tournament, Team };
