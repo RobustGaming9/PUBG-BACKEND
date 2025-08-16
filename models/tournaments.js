@@ -16,7 +16,6 @@ const TeamSchema = new mongoose.Schema({
     required: true 
   },
   teamName: { type: String, required: true, trim: true },
-  logo: { type: String },  // logo string (Google Drive, Cloudinary, etc.)
   kills: { type: Number, default: 0 },
   points: { type: Number, default: 0 },
   eliminated: { type: Boolean, default: false }
